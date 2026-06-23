@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"os"
 
-	webirr "github.com/webirr/webirr-api-go-client-"
+	webirr "github.com/webirr/webirr-api-go-client"
 )
 
 func main() {

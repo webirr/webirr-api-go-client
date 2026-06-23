@@ -6,7 +6,7 @@ with WeBirr Payment Gateway APIs.
 ## Installation
 
 ```bash
-go get github.com/webirr/webirr-api-go-client-
+go get github.com/webirr/webirr-api-go-client
 ```
 
 ## Usage
@@ -51,7 +51,7 @@ import (
 	"fmt"
 	"os"
 
-	webirr "github.com/webirr/webirr-api-go-client-"
+	webirr "github.com/webirr/webirr-api-go-client"
 )
 
 func main() {
