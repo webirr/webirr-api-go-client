@@ -8,12 +8,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 )
 
 const (
-	testBaseURL = "https://api.webirr.net"
+	testBaseURL = "https://api.webirr.dev"
 	prodBaseURL = "https://api.webirr.net:8080"
 )
 
@@ -37,25 +38,12 @@ func WithHTTPClient(httpClient *http.Client) Option {
 	}
 }
 
-// WithBaseURL overrides the gateway base URL. It is useful for tests and local gateways.
-func WithBaseURL(baseURL string) Option {
-	return func(c *Client) {
-		if strings.TrimSpace(baseURL) != "" {
-			c.baseURL = strings.TrimRight(baseURL, "/")
-		}
-	}
-}
-
 // NewClient creates a WeBirr client configured with merchant ID, API key, and environment.
 func NewClient(merchantID, apiKey string, isTestEnv bool, options ...Option) *Client {
-	baseURL := prodBaseURL
-	if isTestEnv {
-		baseURL = testBaseURL
-	}
 	client := &Client{
 		merchantID: strings.TrimSpace(merchantID),
 		apiKey:     strings.TrimSpace(apiKey),
-		baseURL:    baseURL,
+		baseURL:    resolveBaseURL(isTestEnv),
 		httpClient: http.DefaultClient,
 	}
 	for _, option := range options {
@@ -64,6 +52,16 @@ func NewClient(merchantID, apiKey string, isTestEnv bool, options ...Option) *Cl
 		}
 	}
 	return client
+}
+
+func resolveBaseURL(isTestEnv bool) string {
+	if !isTestEnv {
+		return prodBaseURL
+	}
+	if gatewayURL := strings.TrimSpace(os.Getenv("GATEWAY_URL")); gatewayURL != "" {
+		return strings.TrimRight(gatewayURL, "/")
+	}
+	return testBaseURL
 }
 
 // CreateBill creates a new bill and returns the WeBirr payment code in ApiResponse.Res.

@@ -95,22 +95,33 @@ func TestClientUsesInjectedHTTPClient(t *testing.T) {
 	}
 }
 
-func TestClientUsesCustomBaseURL(t *testing.T) {
-	var rawURL string
-	client := NewClient("merchant-from-client", "x", true,
-		WithBaseURL("https://local-gateway.example/"),
-		WithHTTPClient(testHTTPClient(func(req *http.Request) (*http.Response, error) {
-			rawURL = req.URL.String()
-			return jsonResponse(`{"error":null,"res":"OK"}`), nil
-		})),
-	)
+func TestTestEnvUsesDefaultDevBaseURL(t *testing.T) {
+	t.Setenv("GATEWAY_URL", "")
 
-	_, err := client.DeleteBill(context.Background(), "123 456 789")
-	if err != nil {
-		t.Fatal(err)
+	client := NewClient("merchant-from-client", "x", true)
+
+	if client.baseURL != "https://api.webirr.dev" {
+		t.Fatalf("baseURL = %q", client.baseURL)
 	}
-	if !strings.HasPrefix(rawURL, "https://local-gateway.example/einvoice/api/bill?") {
-		t.Fatalf("custom base URL not used: %s", rawURL)
+}
+
+func TestTestEnvUsesGatewayURLEnvironmentOverride(t *testing.T) {
+	t.Setenv("GATEWAY_URL", "https://local-gateway.example/")
+
+	client := NewClient("merchant-from-client", "x", true)
+
+	if client.baseURL != "https://local-gateway.example" {
+		t.Fatalf("baseURL = %q", client.baseURL)
+	}
+}
+
+func TestProductionIgnoresGatewayURLEnvironmentOverride(t *testing.T) {
+	t.Setenv("GATEWAY_URL", "https://local-gateway.example/")
+
+	client := NewClient("merchant-from-client", "x", false)
+
+	if client.baseURL != "https://api.webirr.net:8080" {
+		t.Fatalf("baseURL = %q", client.baseURL)
 	}
 }
 
