@@ -95,6 +95,99 @@ func TestClientUsesInjectedHTTPClient(t *testing.T) {
 	}
 }
 
+func TestClientUsesCustomBaseURL(t *testing.T) {
+	var rawURL string
+	client := NewClient("merchant-from-client", "x", true,
+		WithBaseURL("https://local-gateway.example/"),
+		WithHTTPClient(testHTTPClient(func(req *http.Request) (*http.Response, error) {
+			rawURL = req.URL.String()
+			return jsonResponse(`{"error":null,"res":"OK"}`), nil
+		})),
+	)
+
+	_, err := client.DeleteBill(context.Background(), "123 456 789")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(rawURL, "https://local-gateway.example/einvoice/api/bill?") {
+		t.Fatalf("custom base URL not used: %s", rawURL)
+	}
+}
+
+func TestEndpointMethodsAndParameters(t *testing.T) {
+	for name, tc := range endpointMethodCases() {
+		t.Run(name, func(t *testing.T) {
+			var request *http.Request
+			client := NewClient("merchant-from-client", "api-key-from-client", true, WithHTTPClient(testHTTPClient(func(req *http.Request) (*http.Response, error) {
+				request = req
+				return jsonResponse(tc.responseBody), nil
+			})))
+
+			if err := tc.call(client); err != nil {
+				t.Fatal(err)
+			}
+			if request == nil {
+				t.Fatal("no request captured")
+			}
+			if request.Method != tc.method {
+				t.Fatalf("method = %s", request.Method)
+			}
+			if request.URL.Path != tc.path {
+				t.Fatalf("path = %s", request.URL.Path)
+			}
+			query := request.URL.Query()
+			if query.Get("api_key") != "api-key-from-client" {
+				t.Fatalf("api_key = %q", query.Get("api_key"))
+			}
+			if query.Get("merchant_id") != "merchant-from-client" {
+				t.Fatalf("merchant_id = %q", query.Get("merchant_id"))
+			}
+			for key, value := range tc.query {
+				if query.Get(key) != value {
+					t.Fatalf("%s = %q", key, query.Get(key))
+				}
+			}
+		})
+	}
+}
+
+func TestAPIErrorResponsesReturnTypedResponseWithoutTransportError(t *testing.T) {
+	for name, call := range apiErrorCalls() {
+		t.Run(name, func(t *testing.T) {
+			client := NewClient("merchant-from-client", "bad-key", true, WithHTTPClient(testHTTPClient(func(req *http.Request) (*http.Response, error) {
+				return jsonResponse(`{"error":"invalid api key","errorCode":"ERROR_INVALID_API_KEY","res":null}`), nil
+			})))
+
+			errorMessage, errorCode, err := call(client)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if errorMessage != "invalid api key" || errorCode != "ERROR_INVALID_API_KEY" {
+				t.Fatalf("api error = %q/%q", errorMessage, errorCode)
+			}
+		})
+	}
+}
+
+func TestHTTPStatusErrorReturnsAPIResponseWithoutTransportError(t *testing.T) {
+	client := NewClient("merchant-from-client", "x", true, WithHTTPClient(testHTTPClient(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Status:     "502 Bad Gateway",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("gateway unavailable")),
+		}, nil
+	})))
+
+	response, err := client.DeleteBill(context.Background(), "123 456 789")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Error != "http error 502 502 Bad Gateway" {
+		t.Fatalf("error = %q", response.Error)
+	}
+}
+
 func TestBillSerializesCustomerPhone(t *testing.T) {
 	payload := marshalBill(t, sampleBill("go/unit/1"))
 	if payload["customerPhone"] != customerPhone {
@@ -306,6 +399,163 @@ func endpointCases() map[string]endpointCase {
 		"getPayments":          {path: "einvoice/api/payments", params: map[string]string{"last_timestamp": exampleCursor, "limit": "10"}},
 		"getSupportedBanks":    {path: "einvoice/api/banks"},
 		"getStat":              {path: "merchant/stat", params: map[string]string{"date_from": "2025-01-01", "date_to": "2025-01-02"}},
+	}
+}
+
+type endpointMethodCase struct {
+	method       string
+	path         string
+	query        map[string]string
+	responseBody string
+	call         func(*Client) error
+}
+
+func endpointMethodCases() map[string]endpointMethodCase {
+	return map[string]endpointMethodCase{
+		"createBill": {
+			method:       http.MethodPost,
+			path:         "/einvoice/api/bill",
+			responseBody: `{"error":null,"res":"123 456 789"}`,
+			call: func(client *Client) error {
+				_, err := client.CreateBill(context.Background(), sampleBill("go/unit/create"))
+				return err
+			},
+		},
+		"updateBill": {
+			method:       http.MethodPut,
+			path:         "/einvoice/api/bill",
+			responseBody: `{"error":null,"res":"OK"}`,
+			call: func(client *Client) error {
+				_, err := client.UpdateBill(context.Background(), sampleBill("go/unit/update"))
+				return err
+			},
+		},
+		"deleteBill": {
+			method:       http.MethodDelete,
+			path:         "/einvoice/api/bill",
+			query:        map[string]string{"wbc_code": "123 456 789"},
+			responseBody: `{"error":null,"res":"OK"}`,
+			call: func(client *Client) error {
+				_, err := client.DeleteBill(context.Background(), "123 456 789")
+				return err
+			},
+		},
+		"getPaymentStatus": {
+			method:       http.MethodGet,
+			path:         "/einvoice/api/paymentStatus",
+			query:        map[string]string{"wbc_code": "123 456 789"},
+			responseBody: `{"error":null,"res":{"status":0,"data":null}}`,
+			call: func(client *Client) error {
+				_, err := client.GetPaymentStatus(context.Background(), "123 456 789")
+				return err
+			},
+		},
+		"getBillByReference": {
+			method:       http.MethodGet,
+			path:         "/einvoice/api/bill",
+			query:        map[string]string{"bill_reference": "go/unit/1"},
+			responseBody: `{"error":null,"res":{"billReference":"go/unit/1","wbcCode":"123 456 789"}}`,
+			call: func(client *Client) error {
+				_, err := client.GetBillByReference(context.Background(), "go/unit/1")
+				return err
+			},
+		},
+		"getBillByPaymentCode": {
+			method:       http.MethodGet,
+			path:         "/einvoice/api/bill",
+			query:        map[string]string{"wbc_code": "123 456 789"},
+			responseBody: `{"error":null,"res":{"billReference":"go/unit/1","wbcCode":"123 456 789"}}`,
+			call: func(client *Client) error {
+				_, err := client.GetBillByPaymentCode(context.Background(), "123 456 789")
+				return err
+			},
+		},
+		"getBills": {
+			method:       http.MethodGet,
+			path:         "/einvoice/api/bills",
+			query:        map[string]string{"payment_status": "-1", "last_timestamp": exampleCursor, "limit": "10"},
+			responseBody: `{"error":null,"res":[]}`,
+			call: func(client *Client) error {
+				_, err := client.GetBills(context.Background(), -1, exampleCursor, 10)
+				return err
+			},
+		},
+		"getPayments": {
+			method:       http.MethodGet,
+			path:         "/einvoice/api/payments",
+			query:        map[string]string{"last_timestamp": exampleCursor, "limit": "10"},
+			responseBody: `{"error":null,"res":[]}`,
+			call: func(client *Client) error {
+				_, err := client.GetPayments(context.Background(), exampleCursor, 10)
+				return err
+			},
+		},
+		"getSupportedBanks": {
+			method:       http.MethodGet,
+			path:         "/einvoice/api/banks",
+			responseBody: `{"error":null,"res":[]}`,
+			call: func(client *Client) error {
+				_, err := client.GetSupportedBanks(context.Background())
+				return err
+			},
+		},
+		"getStat": {
+			method:       http.MethodGet,
+			path:         "/merchant/stat",
+			query:        map[string]string{"date_from": "2025-01-01", "date_to": "2025-01-02"},
+			responseBody: `{"error":null,"res":{"NBills":0}}`,
+			call: func(client *Client) error {
+				_, err := client.GetStat(context.Background(), "2025-01-01", "2025-01-02")
+				return err
+			},
+		},
+	}
+}
+
+type apiErrorCall func(*Client) (string, string, error)
+
+func apiErrorCalls() map[string]apiErrorCall {
+	return map[string]apiErrorCall{
+		"createBill": func(client *Client) (string, string, error) {
+			res, err := client.CreateBill(context.Background(), sampleBill("go/unit/error-create"))
+			return res.Error, res.ErrorCode, err
+		},
+		"updateBill": func(client *Client) (string, string, error) {
+			res, err := client.UpdateBill(context.Background(), sampleBill("go/unit/error-update"))
+			return res.Error, res.ErrorCode, err
+		},
+		"deleteBill": func(client *Client) (string, string, error) {
+			res, err := client.DeleteBill(context.Background(), "123 456 789")
+			return res.Error, res.ErrorCode, err
+		},
+		"getPaymentStatus": func(client *Client) (string, string, error) {
+			res, err := client.GetPaymentStatus(context.Background(), "123 456 789")
+			return res.Error, res.ErrorCode, err
+		},
+		"getBillByReference": func(client *Client) (string, string, error) {
+			res, err := client.GetBillByReference(context.Background(), "go/unit/1")
+			return res.Error, res.ErrorCode, err
+		},
+		"getBillByPaymentCode": func(client *Client) (string, string, error) {
+			res, err := client.GetBillByPaymentCode(context.Background(), "123 456 789")
+			return res.Error, res.ErrorCode, err
+		},
+		"getBills": func(client *Client) (string, string, error) {
+			res, err := client.GetBills(context.Background(), -1, exampleCursor, 10)
+			return res.Error, res.ErrorCode, err
+		},
+		"getPayments": func(client *Client) (string, string, error) {
+			res, err := client.GetPayments(context.Background(), exampleCursor, 10)
+			return res.Error, res.ErrorCode, err
+		},
+		"getSupportedBanks": func(client *Client) (string, string, error) {
+			res, err := client.GetSupportedBanks(context.Background())
+			return res.Error, res.ErrorCode, err
+		},
+		"getStat": func(client *Client) (string, string, error) {
+			res, err := client.GetStat(context.Background(), "2025-01-01", "2025-01-02")
+			return res.Error, res.ErrorCode, err
+		},
 	}
 }
 

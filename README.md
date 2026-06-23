@@ -1,9 +1,8 @@
-# Official Go Client Library for WeBirr Payment Gateway APIs
+Official Go Client Library for WeBirr Payment Gateway APIs
 
-This is the official Go client library for integrating merchant applications
-with WeBirr Payment Gateway APIs.
+This Client Library provides convenient access to WeBirr Payment Gateway APIs from Go Applications.
 
-## Installation
+## Install
 
 ```bash
 go get github.com/webirr/webirr-api-go-client
@@ -11,37 +10,104 @@ go get github.com/webirr/webirr-api-go-client
 
 ## Usage
 
-For TestEnv examples, set these environment variables:
+The library needs to be configured with a *merchant Id* & *API key*. You can get it by contacting [webirr.com](https://webirr.net)
+
+> You can use this library for production or test environments. you will need to set isTestEnv=true for test, and false for production apps when creating a `webirr.Client`
+
+Examples assume the WeBirr TestEnv and read credentials from environment variables:
 
 ```bash
-export WEBIRR_TEST_ENV_MERCHANT_ID=0305
-export WEBIRR_TEST_ENV_API_KEY=your-test-env-api-key
+export WEBIRR_TEST_ENV_MERCHANT_ID="YOUR_TEST_MERCHANT_ID"
+export WEBIRR_TEST_ENV_API_KEY="YOUR_TEST_API_KEY"
 ```
 
-Create a client for TestEnv:
+Create the client with merchant ID, API key, and environment once. The client automatically sets `Bill.MerchantID` before sending bill create/update requests when the configured merchant ID is not empty, so application code and examples should not set `MerchantID` on the bill object.
 
-```go
-client := webirr.NewClient(
-	os.Getenv("WEBIRR_TEST_ENV_MERCHANT_ID"),
-	os.Getenv("WEBIRR_TEST_ENV_API_KEY"),
-	true,
-)
-```
-
-The merchant ID is configured on the client. When you create or update a bill,
-the client sets `Bill.MerchantID` automatically when the configured merchant ID
-is not empty.
-
-You can also pass your own reusable `*http.Client`:
+For batch jobs, overnight bill uploads, and polling workers, pass your own reusable `*http.Client`:
 
 ```go
 httpClient := &http.Client{Timeout: 30 * time.Second}
-client := webirr.NewClient(merchantID, apiKey, true, webirr.WithHTTPClient(httpClient))
+api := webirr.NewClient(merchantId, apiKey, true, webirr.WithHTTPClient(httpClient))
 ```
 
-## Creating/Updating bill
+## Example
 
-Create a bill:
+The examples below keep the usual WeBirr SDK flow: create the client, call the API, check `Error`, handle the success branch, and print `ErrorCode` on failure.
+
+### Creating a new Bill / Updating an existing Bill on WeBirr Servers
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"time"
+
+	webirr "github.com/webirr/webirr-api-go-client"
+)
+
+func main() {
+	apiKey := os.Getenv("WEBIRR_TEST_ENV_API_KEY")
+	merchantId := os.Getenv("WEBIRR_TEST_ENV_MERCHANT_ID")
+
+	//apiKey := "YOUR_API_KEY"
+	//merchantId := "YOUR_MERCHANT_ID"
+
+	api := webirr.NewClient(merchantId, apiKey, true)
+
+	bill := &webirr.Bill{
+		Amount:        "270.90",
+		CustomerCode:  "cc01", // it can be email address or phone number if you dont have customer code
+		CustomerName:  "Elias Haileselassie",
+		CustomerPhone: "0911000000", // optional; used for SMS notification when enabled for the merchant
+		Time:          "2021-07-22 22:14", // your bill time, always in this format
+		Description:   "hotel booking",
+		BillReference: "go/example/" + time.Now().UTC().Format("20060102150405"), // your unique reference number
+	}
+
+	fmt.Println("Creating Bill...")
+
+	res, err := api.CreateBill(context.Background(), bill)
+	if err != nil {
+		panic(err)
+	}
+
+	if res.Error == "" {
+		// success
+		paymentCode := res.Res // returns paymentcode such as 429 723 975
+		fmt.Println("Payment Code =", paymentCode) // we may want to save payment code in local db.
+	} else {
+		// fail
+		fmt.Println("error:", res.Error)
+		fmt.Println("errorCode:", res.ErrorCode) // can be used to handle specific business error such as ERROR_INVLAID_INPUT_DUP_REF
+	}
+
+	// Update existing bill if it is not paid
+	bill.Amount = "278.00"
+	bill.CustomerName = "Elias go"
+	//bill.BillReference = "WE CAN NOT CHANGE THIS"
+
+	fmt.Println("Updating Bill...")
+
+	res, err = api.UpdateBill(context.Background(), bill)
+	if err != nil {
+		panic(err)
+	}
+
+	if res.Error == "" {
+		// success
+		fmt.Println("bill is updated successfully") // res.Res will be "OK"; no need to check here.
+	} else {
+		// fail
+		fmt.Println("error:", res.Error)
+		fmt.Println("errorCode:", res.ErrorCode) // can be used to handle specific business error such as ERROR_INVLAID_INPUT
+	}
+}
+```
+
+### Getting a Bill and Listing Bills
 
 ```go
 package main
@@ -55,192 +121,249 @@ import (
 )
 
 func main() {
-	client := webirr.NewClient(
+	api := webirr.NewClient(
 		os.Getenv("WEBIRR_TEST_ENV_MERCHANT_ID"),
 		os.Getenv("WEBIRR_TEST_ENV_API_KEY"),
 		true,
 	)
 
-	bill := &webirr.Bill{
-		Amount:        "270.90",
-		CustomerCode:  "cc01",
-		CustomerName:  "Elias Haileselassie",
-		CustomerPhone: "0911000000",
-		Time:          "2021-07-22 22:14",
-		Description:   "hotel booking",
-		BillReference: "go/2021/132",
-	}
+	billReference := "YOUR_BILL_REFERENCE" // BILL_REFERENCE_YOU_SAVED_AFTER_CREATING_A_NEW_BILL
+	paymentCode := "YOUR_PAYMENT_CODE"     // PAYMENT_CODE_YOU_SAVED_AFTER_CREATING_A_NEW_BILL
 
-	response, err := client.CreateBill(context.Background(), bill)
+	fmt.Println("Getting bill by reference...")
+	resByReference, err := api.GetBillByReference(context.Background(), billReference)
 	if err != nil {
 		panic(err)
 	}
-
-	if response.Error == "" {
-		fmt.Println("WeBirr Payment Code:", response.Res)
+	if resByReference.Error == "" {
+		// success
+		fmt.Println("Bill Reference:", resByReference.Res.BillReference)
+		fmt.Println("Payment Code:", resByReference.Res.WbcCode)
+		fmt.Println("Amount:", resByReference.Res.Amount)
+		fmt.Println("Payment Status:", resByReference.Res.PaymentStatus)
+		fmt.Println("Update Timestamp:", resByReference.Res.UpdateTimeStamp)
 	} else {
-		fmt.Println("Error:", response.Error, response.ErrorCode)
+		// fail
+		fmt.Println("error:", resByReference.Error)
+		fmt.Println("errorCode:", resByReference.ErrorCode)
+	}
+
+	fmt.Println("Getting bill by payment code...")
+	resByCode, err := api.GetBillByPaymentCode(context.Background(), paymentCode)
+	if err != nil {
+		panic(err)
+	}
+	if resByCode.Error == "" {
+		// success
+		fmt.Println("Bill Reference:", resByCode.Res.BillReference)
+		fmt.Println("Payment Code:", resByCode.Res.WbcCode)
+	} else {
+		// fail
+		fmt.Println("error:", resByCode.Error)
+		fmt.Println("errorCode:", resByCode.ErrorCode)
+	}
+
+	fmt.Println("Listing bills...")
+	paymentStatus := -1       // -1 all, 0 pending, 1 unconfirmed payment, 2 paid.
+	lastTimeStamp := "20251231" // Date-only cursor; use "20251231235959" when you need time precision.
+	limit := 100
+
+	bills, err := api.GetBills(context.Background(), paymentStatus, lastTimeStamp, limit)
+	if err != nil {
+		panic(err)
+	}
+	if bills.Error == "" {
+		// success
+		fmt.Println("Bills returned:", len(bills.Res))
+		for _, bill := range bills.Res {
+			fmt.Println("-----------------------------")
+			fmt.Println("Bill Reference:", bill.BillReference)
+			fmt.Println("Payment Code:", bill.WbcCode)
+			fmt.Println("Amount:", bill.Amount)
+			fmt.Println("Payment Status:", bill.PaymentStatus)
+			fmt.Println("Update Timestamp:", bill.UpdateTimeStamp)
+		}
+	} else {
+		// fail
+		fmt.Println("error:", bills.Error)
+		fmt.Println("errorCode:", bills.ErrorCode)
 	}
 }
 ```
 
-Update the same bill while it is unpaid:
+Timestamp cursors can be date-only (`yyyyMMdd`) or include time (`yyyyMMddHHmmss`). Use empty string only when you intentionally want all history from the beginning.
+
+### Getting Supported Banks for Checkout
+
+Use this endpoint to display only the banks and wallets configured for the merchant.
 
 ```go
-bill.Amount = "278.00"
-bill.CustomerName = "Elias Haileselassie"
-
-response, err := client.UpdateBill(context.Background(), bill)
-if err != nil {
-	panic(err)
-}
-
-if response.Error == "" {
-	fmt.Println("Update result:", response.Res)
-} else {
-	fmt.Println("Error:", response.Error, response.ErrorCode)
-}
-```
-
-## Getting Bill and Listing Bills
-
-Get a bill by merchant reference:
-
-```go
-response, err := client.GetBillByReference(context.Background(), "go/2021/132")
-if err != nil {
-	panic(err)
-}
-
-if response.Error == "" {
-	fmt.Println(response.Res.WbcCode)
-	fmt.Println(response.Res.UpdateTimeStamp)
-} else {
-	fmt.Println("Error:", response.Error, response.ErrorCode)
-}
-```
-
-Get a bill by WeBirr payment code:
-
-```go
-response, err := client.GetBillByPaymentCode(context.Background(), "123 456 789")
-if err != nil {
-	panic(err)
-}
-```
-
-List bills by payment status and timestamp cursor:
-
-```go
-lastTimeStamp := "20251231" // Empty string starts from the beginning. Time parts can also be used.
-response, err := client.GetBills(context.Background(), -1, lastTimeStamp, 100)
-if err != nil {
-	panic(err)
-}
-
-if response.Error == "" {
-	for _, bill := range response.Res {
-		fmt.Println(bill.BillReference, bill.WbcCode, bill.PaymentStatus, bill.UpdateTimeStamp)
-	}
-}
-```
-
-## Getting Supported Banks for Checkout
-
-Use this endpoint to display only the banks and wallets configured for the
-merchant.
-
-```go
-response, err := client.GetSupportedBanks(context.Background())
+response, err := api.GetSupportedBanks(context.Background())
 if err != nil {
 	panic(err)
 }
 
 if response.Error == "" {
 	for _, bank := range response.Res {
-		fmt.Println(bank.BankID, bank.Name)
+		fmt.Println(bank.BankID, "-", bank.Name)
 	}
+	fmt.Println("Use only these merchant-specific banks when showing checkout payment instructions.")
 } else {
-	fmt.Println("Error:", response.Error, response.ErrorCode)
+	fmt.Println("error:", response.Error)
+	fmt.Println("errorCode:", response.ErrorCode)
 }
 ```
 
-## Getting Payment status
+Checkout pages should render bank-specific instructions only from `GetSupportedBanks()`. Do not show a broad static bank list unless those banks are returned for the configured merchant.
+
+### Getting Payment status of an existing Bill from WeBirr Servers
 
 ```go
-response, err := client.GetPaymentStatus(context.Background(), "123 456 789")
-if err != nil {
-	panic(err)
-}
+package main
 
-if response.Error == "" {
-	if response.Res.IsPaid() && response.Res.Data != nil {
-		fmt.Println("Paid:", response.Res.Data.PaymentReference)
-		fmt.Println("Paid at:", response.Res.Data.PaymentDate)
+import (
+	"context"
+	"fmt"
+	"os"
+
+	webirr "github.com/webirr/webirr-api-go-client"
+)
+
+func main() {
+	api := webirr.NewClient(
+		os.Getenv("WEBIRR_TEST_ENV_MERCHANT_ID"),
+		os.Getenv("WEBIRR_TEST_ENV_API_KEY"),
+		true,
+	)
+
+	paymentCode := "PAYMENT_CODE_YOU_SAVED_AFTER_CREATING_A_NEW_BILL" // such as "141 263 782"
+
+	fmt.Println("Getting Payment Status...")
+
+	res, err := api.GetPaymentStatus(context.Background(), paymentCode)
+	if err != nil {
+		panic(err)
+	}
+
+	if res.Error == "" {
+		// success
+		if res.Res.IsPaid() && res.Res.Data != nil { // 0. Pending, 1. Payment in Progress, 2. Paid
+			payment := res.Res.Data
+			fmt.Println("bill is paid")
+			fmt.Println("bill payment detail")
+			fmt.Println("Bank:", payment.BankID)
+			fmt.Println("Bank Reference Number:", payment.PaymentReference)
+			fmt.Println("Amount Paid:", payment.Amount)
+			fmt.Println("Payment Date:", payment.PaymentDate)
+		} else {
+			fmt.Println("bill is pending payment")
+		}
 	} else {
-		fmt.Println("Not paid yet")
+		// fail
+		fmt.Println("error:", res.Error)
+		fmt.Println("errorCode:", res.ErrorCode) // can be used to handle specific business error such as ERROR_INVLAID_INPUT
 	}
-} else {
-	fmt.Println("Error:", response.Error, response.ErrorCode)
 }
 ```
 
-## sample object
+*Sample object returned from GetPaymentStatus()*
 
-```go
-bill := &webirr.Bill{
-	Amount:        "270.90",
-	CustomerCode:  "cc01",
-	CustomerName:  "Elias Haileselassie",
-	CustomerPhone: "0911000000",
-	Time:          "2021-07-22 22:14",
-	Description:   "hotel booking",
-	BillReference: "go/2021/132",
+```javascript
+{
+  error: null,
+  res: {
+    status: 2,
+    data: {
+      status: 2,
+      id: 111219507,
+      bankID: "cbe_mobile",
+      paymentReference: "TX70e78862148f4c249606",
+      paymentDate: "2025-02-26 22:17:19",
+      confirmed: true,
+      confirmedTime: "2025-02-26 22:17:19",
+      amount: "278",
+      wbcCode: "149 233 514",
+      updateTimeStamp: "2025022622171981338"
+    }
+  },
+  errorCode: null
 }
 ```
 
-## Deleting bill
+### Deleting an existing Bill from WeBirr Servers (if it is not paid)
 
 ```go
-response, err := client.DeleteBill(context.Background(), "123 456 789")
+response, err := api.DeleteBill(context.Background(), "PAYMENT_CODE_YOU_SAVED_AFTER_CREATING_A_NEW_BILL")
 if err != nil {
 	panic(err)
 }
 
 if response.Error == "" {
-	fmt.Println("Delete result:", response.Res)
+	// success
+	fmt.Println("bill is deleted successfully")
 } else {
-	fmt.Println("Error:", response.Error, response.ErrorCode)
+	// fail
+	fmt.Println("error:", response.Error)
+	fmt.Println("errorCode:", response.ErrorCode)
 }
 ```
 
-## Payment status bulk polling
+### Payment status bulk polling
 
-Bulk polling returns payments updated after the supplied timestamp cursor.
+Use timestamp-based polling to synchronize paid or reversed payments in batch jobs.
 
 ```go
-lastTimeStamp := "20251231" // Empty string starts from the beginning. Time parts can also be used.
-response, err := client.GetPayments(context.Background(), lastTimeStamp, 100)
+lastTimeStamp := "20251231" // Date-only cursor; use "20251231235959" when you need time precision.
+limit := 100
+
+response, err := api.GetPayments(context.Background(), lastTimeStamp, limit)
 if err != nil {
 	panic(err)
 }
 
 if response.Error == "" {
+	nextLastTimeStamp := lastTimeStamp
 	for _, payment := range response.Res {
-		fmt.Println(payment.WbcCode, payment.PaymentReference, payment.PaymentDate, payment.UpdateTimeStamp)
+		fmt.Println("-----------------------------")
+		fmt.Println("Payment Code:", payment.WbcCode)
+		fmt.Println("Bank Reference Number:", payment.PaymentReference)
+		fmt.Println("Amount Paid:", payment.Amount)
+		fmt.Println("Payment Date:", payment.PaymentDate)
+		fmt.Println("Update Timestamp:", payment.UpdateTimeStamp)
+
+		if payment.UpdateTimeStamp > nextLastTimeStamp {
+			nextLastTimeStamp = payment.UpdateTimeStamp
+		}
 	}
+
+	// Persist nextLastTimeStamp only after the batch is processed successfully.
+	fmt.Println("Next cursor:", nextLastTimeStamp)
 } else {
-	fmt.Println("Error:", response.Error, response.ErrorCode)
+	fmt.Println("error:", response.Error)
+	fmt.Println("errorCode:", response.ErrorCode)
 }
 ```
 
-## Webhooks - Payment processing using Webhook Callbacks
+Do not use obsolete serial-number polling for new integrations.
 
-Merchants can receive payment notifications on their own webhook endpoint. The
-payload can be decoded into `webirr.PaymentResponse`.
+### Webhooks - Payment processing using Webhook Callbacks
+
+Merchants can receive payment notifications on their own HTTPS webhook endpoint. The endpoint should validate the request method, check the configured `authKey` when used, decode the raw JSON payload into `webirr.PaymentResponse`, process the payment idempotently, and return success quickly.
 
 ```go
 func paymentWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	expectedAuthKey := os.Getenv("WEBIRR_WEBHOOK_AUTH_KEY")
+	if expectedAuthKey != "" && r.URL.Query().Get("authKey") != expectedAuthKey {
+		http.Error(w, "invalid authKey", http.StatusUnauthorized)
+		return
+	}
+
 	var payment webirr.PaymentResponse
 	if err := json.NewDecoder(r.Body).Decode(&payment); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -249,17 +372,26 @@ func paymentWebhook(w http.ResponseWriter, r *http.Request) {
 
 	if payment.IsPaid() {
 		fmt.Println("Payment Reference:", payment.PaymentReference)
-		fmt.Println("Paid at:", payment.PaymentDate)
+		fmt.Println("Paid Via:", payment.BankID)
+		fmt.Println("Amount Paid:", payment.Amount)
+		fmt.Println("Payment Date:", payment.PaymentDate)
+	} else if payment.IsReversed() {
+		fmt.Println("Payment reversed:", payment.PaymentReference)
+	} else {
+		fmt.Println("Payment status:", payment.Status)
 	}
 
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 ```
 
-## Gettting basic Statistics
+Webhook processing and polling should share the same local completion logic so that repeated callbacks, manual polling, or background reconciliation cannot complete the same merchant order twice.
+
+### Getting basic Statistics
 
 ```go
-response, err := client.GetStat(context.Background(), "2021-01-01", "2021-12-31")
+response, err := api.GetStat(context.Background(), "2021-01-01", "2021-12-31")
 if err != nil {
 	panic(err)
 }
@@ -269,7 +401,8 @@ if response.Error == "" {
 	fmt.Println("Paid:", response.Res.NBillsPaid)
 	fmt.Println("Amount Paid:", response.Res.AmountPaid)
 } else {
-	fmt.Println("Error:", response.Error, response.ErrorCode)
+	fmt.Println("error:", response.Error)
+	fmt.Println("errorCode:", response.ErrorCode)
 }
 ```
 
@@ -289,6 +422,19 @@ The `examples` directory contains runnable examples for:
 Run an example:
 
 ```bash
-cd examples/example1-create-update-bill
-go run .
+go run ./examples/example1-create-update-bill
+```
+
+Run tests:
+
+```bash
+go test ./...
+```
+
+Live TestEnv smoke tests run only when these environment variables are set:
+
+```bash
+export WEBIRR_TEST_ENV_MERCHANT_ID="YOUR_TEST_MERCHANT_ID"
+export WEBIRR_TEST_ENV_API_KEY="YOUR_TEST_API_KEY"
+go test ./...
 ```

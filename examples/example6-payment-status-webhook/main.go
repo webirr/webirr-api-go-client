@@ -18,6 +18,12 @@ func main() {
 }
 
 func paymentWebhook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	expectedAuthKey := os.Getenv("WEBIRR_WEBHOOK_AUTH_KEY")
 	if expectedAuthKey != "" && r.URL.Query().Get("authKey") != expectedAuthKey {
 		http.Error(w, "invalid authKey", http.StatusUnauthorized)

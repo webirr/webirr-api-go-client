@@ -25,7 +25,14 @@ func main() {
 		return
 	}
 
+	nextLastTimeStamp := lastTimeStamp
 	for _, payment := range response.Res {
 		fmt.Println(payment.WbcCode, payment.PaymentReference, payment.PaymentDate, payment.UpdateTimeStamp)
+		if payment.UpdateTimeStamp > nextLastTimeStamp {
+			nextLastTimeStamp = payment.UpdateTimeStamp
+		}
 	}
+
+	// Persist this only after the full batch is processed successfully.
+	fmt.Println("Next cursor:", nextLastTimeStamp)
 }
