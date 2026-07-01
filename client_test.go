@@ -209,7 +209,7 @@ func TestHTTPStatusErrorReturnsNativeError(t *testing.T) {
 	if !httpErr.IsTransient() {
 		t.Fatal("expected 502 to be transient")
 	}
-	if !IsTransient(err) {
+	if !TransientErrors.IsTransient(err) {
 		t.Fatal("expected helper to classify 502 as transient")
 	}
 }
@@ -232,22 +232,22 @@ func TestHTTPStatusBadRequestIsNotTransient(t *testing.T) {
 	if httpErr.IsTransient() {
 		t.Fatal("expected 400 not to be transient")
 	}
-	if IsTransient(err) {
+	if TransientErrors.IsTransient(err) {
 		t.Fatal("expected helper to classify 400 as non-transient")
 	}
 }
 
 func TestIsTransientCoversTransportAndTimeoutErrors(t *testing.T) {
-	if !IsTransient(context.DeadlineExceeded) {
+	if !TransientErrors.IsTransient(context.DeadlineExceeded) {
 		t.Fatal("expected deadline exceeded to be transient")
 	}
-	if !IsTransient(timeoutError{}) {
+	if !TransientErrors.IsTransient(timeoutError{}) {
 		t.Fatal("expected net timeout to be transient")
 	}
-	if IsTransient(errors.New("bad json")) {
+	if TransientErrors.IsTransient(errors.New("bad json")) {
 		t.Fatal("expected generic error not to be transient")
 	}
-	if IsTransient(nil) {
+	if TransientErrors.IsTransient(nil) {
 		t.Fatal("expected nil not to be transient")
 	}
 }

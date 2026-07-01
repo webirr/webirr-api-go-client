@@ -14,6 +14,11 @@ type HTTPError struct {
 	Status     string
 }
 
+type transientErrors struct{}
+
+// TransientErrors classifies platform errors that are normally safe to retry.
+var TransientErrors transientErrors
+
 func (e *HTTPError) Error() string {
 	if e.Status != "" {
 		return fmt.Sprintf("webirr http error: %s", e.Status)
@@ -32,7 +37,7 @@ func (e *HTTPError) IsTransient() bool {
 }
 
 // IsTransient reports whether an SDK error is normally safe to retry.
-func IsTransient(err error) bool {
+func (transientErrors) IsTransient(err error) bool {
 	if err == nil {
 		return false
 	}
