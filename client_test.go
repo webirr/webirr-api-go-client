@@ -3,7 +3,9 @@ package webirr
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -180,7 +182,7 @@ func TestAPIErrorResponsesReturnTypedResponseWithoutTransportError(t *testing.T)
 	}
 }
 
-func TestHTTPStatusErrorReturnsAPIResponseWithoutTransportError(t *testing.T) {
+func TestHTTPStatusErrorReturnsNativeError(t *testing.T) {
 	client := NewClient("merchant-from-client", "x", true, WithHTTPClient(testHTTPClient(func(req *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusBadGateway,
@@ -191,11 +193,79 @@ func TestHTTPStatusErrorReturnsAPIResponseWithoutTransportError(t *testing.T) {
 	})))
 
 	response, err := client.DeleteBill(context.Background(), "123 456 789")
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("expected error")
 	}
-	if response.Error != "http error 502 502 Bad Gateway" {
-		t.Fatalf("error = %q", response.Error)
+	if response != nil {
+		t.Fatalf("response = %+v", response)
+	}
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error type = %T", err)
+	}
+	if httpErr.StatusCode != http.StatusBadGateway || httpErr.Status != "502 Bad Gateway" {
+		t.Fatalf("http error = %+v", httpErr)
+	}
+	if !httpErr.IsTransient() {
+		t.Fatal("expected 502 to be transient")
+	}
+	if !IsTransient(err) {
+		t.Fatal("expected helper to classify 502 as transient")
+	}
+}
+
+func TestHTTPStatusBadRequestIsNotTransient(t *testing.T) {
+	client := NewClient("merchant-from-client", "x", true, WithHTTPClient(testHTTPClient(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Status:     "400 Bad Request",
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("bad request")),
+		}, nil
+	})))
+
+	_, err := client.DeleteBill(context.Background(), "123 456 789")
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error type = %T", err)
+	}
+	if httpErr.IsTransient() {
+		t.Fatal("expected 400 not to be transient")
+	}
+	if IsTransient(err) {
+		t.Fatal("expected helper to classify 400 as non-transient")
+	}
+}
+
+func TestIsTransientCoversTransportAndTimeoutErrors(t *testing.T) {
+	if !IsTransient(context.DeadlineExceeded) {
+		t.Fatal("expected deadline exceeded to be transient")
+	}
+	if !IsTransient(timeoutError{}) {
+		t.Fatal("expected net timeout to be transient")
+	}
+	if IsTransient(errors.New("bad json")) {
+		t.Fatal("expected generic error not to be transient")
+	}
+	if IsTransient(nil) {
+		t.Fatal("expected nil not to be transient")
+	}
+}
+
+func TestEmptyResponseReturnsNativeError(t *testing.T) {
+	client := NewClient("merchant-from-client", "x", true, WithHTTPClient(testHTTPClient(func(req *http.Request) (*http.Response, error) {
+		return jsonResponse("  "), nil
+	})))
+
+	response, err := client.DeleteBill(context.Background(), "123 456 789")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if response != nil {
+		t.Fatalf("response = %+v", response)
+	}
+	if !strings.Contains(err.Error(), "empty response") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -582,6 +652,22 @@ type roundTripFunc func(req *http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string {
+	return "timeout"
+}
+
+func (timeoutError) Timeout() bool {
+	return true
+}
+
+func (timeoutError) Temporary() bool {
+	return false
+}
+
+var _ net.Error = timeoutError{}
 
 func testHTTPClient(handler roundTripFunc) *http.Client {
 	return &http.Client{Transport: handler}

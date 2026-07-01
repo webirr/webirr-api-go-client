@@ -168,10 +168,10 @@ func send[T any](ctx context.Context, c *Client, method, path string, params map
 		return nil, err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return &ApiResponse[T]{Error: fmt.Sprintf("http error %d %s", response.StatusCode, response.Status)}, nil
+		return nil, &HTTPError{StatusCode: response.StatusCode, Status: response.Status}
 	}
 	if len(strings.TrimSpace(string(responseBody))) == 0 {
-		return &ApiResponse[T]{Error: "empty response"}, nil
+		return nil, fmt.Errorf("empty response body")
 	}
 
 	var apiResponse ApiResponse[T]

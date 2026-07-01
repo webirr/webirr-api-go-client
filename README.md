@@ -30,6 +30,34 @@ httpClient := &http.Client{Timeout: 30 * time.Second}
 api := webirr.NewClient(merchantId, apiKey, true, webirr.WithHTTPClient(httpClient))
 ```
 
+## Error handling & retries
+
+WeBirr business errors come back on an HTTP 2xx response in `ApiResponse.Error` / `ApiResponse.ErrorCode`, such as invalid API key, duplicate bill reference, or validation errors. Everything else is a platform error returned through Go's normal `error` channel: network/DNS/TLS failures, timeouts, non-2xx HTTP, and empty or non-JSON 2xx bodies.
+
+Retry only transient platform failures with exponential backoff and jitter: connection errors, timeouts, and HTTP 5xx / 429 / 408. Non-2xx responses return `*webirr.HTTPError`, and `webirr.IsTransient(err)` classifies HTTP status errors, `context.DeadlineExceeded`, and `net.Error` timeouts. Never retry other 4xx responses.
+
+Create and read operations are safe to retry. `DeleteBill` is also safe to retry, but a retry after it already succeeded returns an "invalid payment code" business error; treat that as already deleted.
+
+```go
+response, err := api.CreateBill(context.Background(), bill)
+if err != nil {
+	if webirr.IsTransient(err) {
+		// retry with backoff + jitter
+	}
+	// handle platform error
+	return
+}
+
+if response.Error != "" {
+	// WeBirr business error from a 2xx response envelope.
+	fmt.Println("error:", response.Error)
+	fmt.Println("errorCode:", response.ErrorCode)
+	return
+}
+
+fmt.Println("Payment Code =", response.Res)
+```
+
 ## Example
 
 The examples below keep the usual WeBirr SDK flow: create the client, call the API, check `Error`, handle the success branch, and print `ErrorCode` on failure.
