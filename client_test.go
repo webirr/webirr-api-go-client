@@ -342,8 +342,8 @@ func TestBillResponseDeserializesRetrievalOnlyFields(t *testing.T) {
 	}
 }
 
-func TestPaymentResponseUsesPaymentDateAsTimeAlias(t *testing.T) {
-	var response ApiResponse[[]PaymentResponse]
+func TestPaymentRecordUsesPaymentDateAndIgnoresLegacyTime(t *testing.T) {
+	var response ApiResponse[[]PaymentRecord]
 	mustUnmarshal(t, `{
 		"error": null,
 		"res": [{
@@ -352,6 +352,7 @@ func TestPaymentResponseUsesPaymentDateAsTimeAlias(t *testing.T) {
 			"bankID": "test-bank",
 			"paymentReference": "TX-1",
 			"paymentDate": "2026-06-12 10:11:12",
+			"time": "legacy value ignored",
 			"confirmed": true,
 			"confirmedTime": "2026-06-12 10:12:12",
 			"canceled": false,
@@ -363,8 +364,8 @@ func TestPaymentResponseUsesPaymentDateAsTimeAlias(t *testing.T) {
 	}`, &response)
 
 	payment := response.Res[0]
-	if payment.PaymentDate != "2026-06-12 10:11:12" || payment.Time != payment.PaymentDate {
-		t.Fatalf("payment date/time = %q/%q", payment.PaymentDate, payment.Time)
+	if payment.PaymentDate != "2026-06-12 10:11:12" {
+		t.Fatalf("paymentDate = %q", payment.PaymentDate)
 	}
 	if !payment.IsPaid() {
 		t.Fatal("expected paid payment")
@@ -406,9 +407,6 @@ func TestPaymentWebhookPayloadDeserializesGatewayWrapper(t *testing.T) {
 	}
 	if payload.Data.UpdateTimeStamp != "2026062512000000000" {
 		t.Fatalf("updateTimeStamp = %q", payload.Data.UpdateTimeStamp)
-	}
-	if payload.Data.Time != payload.Data.PaymentDate {
-		t.Fatalf("time alias = %q/%q", payload.Data.Time, payload.Data.PaymentDate)
 	}
 }
 

@@ -348,7 +348,7 @@ Do not use obsolete serial-number polling for new integrations.
 
 ### Webhooks - Payment processing using Webhook Callbacks
 
-Merchants can receive payment notifications on their own HTTPS webhook endpoint. The endpoint should validate the request method, check the configured `authKey` when used, decode the raw JSON payload into `webirr.PaymentWebhookPayload`, process `payload.Data` idempotently, and return success quickly.
+Merchants can receive payment notifications on their own HTTPS webhook endpoint. The endpoint should validate the request method, check the configured query-string `authKey` when used, decode the raw JSON payload into `webirr.PaymentWebhookPayload`, process `payload.Data` idempotently, and return success quickly.
 
 ```go
 func paymentWebhook(w http.ResponseWriter, r *http.Request) {

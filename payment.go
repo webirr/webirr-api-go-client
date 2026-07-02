@@ -53,14 +53,13 @@ func (p *PaymentDetail) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// PaymentResponse is returned by bulk polling and inside webhook payloads.
-type PaymentResponse struct {
+// PaymentRecord is returned by bulk polling and inside webhook payloads.
+type PaymentRecord struct {
 	Status           int    `json:"status"`
 	ID               int64  `json:"id"`
 	BankID           string `json:"bankID"`
 	PaymentReference string `json:"paymentReference"`
 	PaymentDate      string `json:"paymentDate"`
-	Time             string `json:"time"`
 	Confirmed        bool   `json:"confirmed"`
 	ConfirmedTime    string `json:"confirmedTime"`
 	Canceled         bool   `json:"canceled"`
@@ -73,30 +72,14 @@ type PaymentResponse struct {
 // PaymentWebhookPayload is the JSON wrapper posted by the WeBirr gateway to
 // merchant webhook endpoints.
 type PaymentWebhookPayload struct {
-	Status int             `json:"status"`
-	Data   PaymentResponse `json:"data"`
+	Status int           `json:"status"`
+	Data   PaymentRecord `json:"data"`
 }
 
-func (p PaymentResponse) IsPaid() bool {
+func (p PaymentRecord) IsPaid() bool {
 	return p.Status == 2
 }
 
-func (p PaymentResponse) IsReversed() bool {
+func (p PaymentRecord) IsReversed() bool {
 	return p.Status == 3 || p.Canceled
-}
-
-func (p *PaymentResponse) UnmarshalJSON(data []byte) error {
-	type paymentResponseJSON PaymentResponse
-	var out paymentResponseJSON
-	if err := json.Unmarshal(data, &out); err != nil {
-		return err
-	}
-	if out.PaymentDate == "" {
-		out.PaymentDate = out.Time
-	}
-	if out.Time == "" {
-		out.Time = out.PaymentDate
-	}
-	*p = PaymentResponse(out)
-	return nil
 }

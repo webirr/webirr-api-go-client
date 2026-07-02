@@ -106,8 +106,8 @@ func (c *Client) GetBills(ctx context.Context, paymentStatus int, lastTimeStamp 
 }
 
 // GetPayments lists payments updated after a timestamp cursor.
-func (c *Client) GetPayments(ctx context.Context, lastTimeStamp string, limit int) (*ApiResponse[[]PaymentResponse], error) {
-	return send[[]PaymentResponse](ctx, c, http.MethodGet, "einvoice/api/payments", map[string]string{
+func (c *Client) GetPayments(ctx context.Context, lastTimeStamp string, limit int) (*ApiResponse[[]PaymentRecord], error) {
+	return send[[]PaymentRecord](ctx, c, http.MethodGet, "einvoice/api/payments", map[string]string{
 		"last_timestamp": lastTimeStamp,
 		"limit":          strconv.Itoa(limit),
 	}, nil)
