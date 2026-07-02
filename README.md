@@ -5,8 +5,13 @@ This Client Library provides convenient access to WeBirr Payment Gateway APIs fr
 ## Install
 
 ```bash
-go get github.com/webirr/webirr-api-go-client
+go get github.com/webirr/webirr-api-go-client@latest
 ```
+
+Use the latest released Go module unless your application needs to pin a
+specific version. WeBirr SDKs version independently by language, so the Go
+module version may differ from PHP, JavaScript, .NET, Python, Dart, Kotlin,
+Swift, or Ruby.
 
 ## Usage
 
