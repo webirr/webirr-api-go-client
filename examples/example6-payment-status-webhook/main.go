@@ -30,12 +30,13 @@ func paymentWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payment webirr.PaymentResponse
-	if err := json.NewDecoder(r.Body).Decode(&payment); err != nil {
+	var payload webirr.PaymentWebhookPayload
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	payment := payload.Data
 	if payment.IsPaid() {
 		fmt.Println("Payment Reference:", payment.PaymentReference)
 		fmt.Println("Paid Via:", payment.BankID)

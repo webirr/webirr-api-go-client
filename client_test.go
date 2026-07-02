@@ -371,6 +371,47 @@ func TestPaymentResponseUsesPaymentDateAsTimeAlias(t *testing.T) {
 	}
 }
 
+func TestPaymentWebhookPayloadDeserializesGatewayWrapper(t *testing.T) {
+	var payload PaymentWebhookPayload
+	mustUnmarshal(t, `{
+		"status": 2,
+		"data": {
+			"status": 2,
+			"id": 121356,
+			"bankID": "cbe_mobile",
+			"paymentReference": "FTC356A577695",
+			"paymentDate": "2026-06-25 12:00:00",
+			"time": "2026-06-25 12:00:00",
+			"confirmed": true,
+			"confirmedTime": "2026-06-25 12:00:00",
+			"canceled": false,
+			"canceledTime": "",
+			"amount": "100.00",
+			"wbcCode": "000 000 000",
+			"updateTimeStamp": "2026062512000000000"
+		}
+	}`, &payload)
+
+	if payload.Status != payload.Data.Status {
+		t.Fatalf("status wrapper/data mismatch = %d/%d", payload.Status, payload.Data.Status)
+	}
+	if payload.Data.WbcCode != "000 000 000" {
+		t.Fatalf("wbcCode = %q", payload.Data.WbcCode)
+	}
+	if payload.Data.PaymentReference != "FTC356A577695" {
+		t.Fatalf("paymentReference = %q", payload.Data.PaymentReference)
+	}
+	if payload.Data.BankID != "cbe_mobile" {
+		t.Fatalf("bankID = %q", payload.Data.BankID)
+	}
+	if payload.Data.UpdateTimeStamp != "2026062512000000000" {
+		t.Fatalf("updateTimeStamp = %q", payload.Data.UpdateTimeStamp)
+	}
+	if payload.Data.Time != payload.Data.PaymentDate {
+		t.Fatalf("time alias = %q/%q", payload.Data.Time, payload.Data.PaymentDate)
+	}
+}
+
 func TestPaymentDetailKeepsLegacyTimeAsPaymentDateAlias(t *testing.T) {
 	var response ApiResponse[PaymentStatus]
 	mustUnmarshal(t, `{

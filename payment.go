@@ -53,7 +53,7 @@ func (p *PaymentDetail) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// PaymentResponse is returned by bulk polling and webhook payloads.
+// PaymentResponse is returned by bulk polling and inside webhook payloads.
 type PaymentResponse struct {
 	Status           int    `json:"status"`
 	ID               int64  `json:"id"`
@@ -68,6 +68,13 @@ type PaymentResponse struct {
 	Amount           string `json:"amount"`
 	WbcCode          string `json:"wbcCode"`
 	UpdateTimeStamp  string `json:"updateTimeStamp"`
+}
+
+// PaymentWebhookPayload is the JSON wrapper posted by the WeBirr gateway to
+// merchant webhook endpoints.
+type PaymentWebhookPayload struct {
+	Status int             `json:"status"`
+	Data   PaymentResponse `json:"data"`
 }
 
 func (p PaymentResponse) IsPaid() bool {
